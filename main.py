@@ -159,62 +159,29 @@ def health():
 async def deskew_endpoint(
     url: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
-    warp: bool = Form(False),  # si True: deskew + warpPerspective
+    warp: bool = Form(False),
 ):
-    """
-    Devuelve la imagen procesada (JPEG) como bytes.
-    - Enviar 'url' (string) o 'file' (multipart).
-    - Si 'warp' es True, intenta corregir perspectiva luego del deskew.
-    - Ángulo de deskew en header 'X-Deskew-Angle'.
-    """
-    print(f"🔍 [DEBUG] Recibido - url: {url}, file: {file}, warp: {warp}")
-    
-    if not url and not file:
-        print("❌ [ERROR] No se recibió ni url ni file")
-        raise HTTPException(status_code=400, detail="Envia 'url' o 'file'.")
-
-    print(f"✅ [INFO] Procesando imagen desde {'URL' if url else 'archivo'}")
+    """Procesa imagen y devuelve JSON con success + imagen en base64"""
+    import base64
     
     try:
+        if not url and not file:
+            return {"success": False, "error": "No se recibió url ni file"}
+
         img_bytes = await fetch_image_bytes(url) if url else await file.read()
-        print(f"✅ [INFO] Imagen descargada/leída: {len(img_bytes)} bytes")
-    except Exception as e:
-        print(f"❌ [ERROR] Error al obtener bytes de imagen: {e}")
-        raise
-
-    try:
         img = read_bgr(img_bytes)
-        print(f"✅ [INFO] Imagen decodificada: {img.shape}")
-    except Exception as e:
-        print(f"❌ [ERROR] Error al decodificar imagen: {e}")
-        raise
-
-    # Deskew
-    try:
         rotated, angle = deskew_by_hough(img)
-        print(f"✅ [INFO] Deskew aplicado: ángulo={angle:.2f}°")
-    except Exception as e:
-        print(f"❌ [ERROR] Error en deskew: {e}")
-        raise
-
-    # Warp opcional
-    try:
         output = try_warp_table(rotated) if warp else rotated
-        if warp:
-            print(f"✅ [INFO] Warp de perspectiva aplicado")
-    except Exception as e:
-        print(f"⚠️ [WARNING] Error en warp (continuando): {e}")
-        output = rotated
-
-    try:
         jpeg = encode_jpeg(output, quality=92)
-        print(f"✅ [INFO] JPEG generado: {len(jpeg)} bytes")
+        
+        return {
+            "success": True,
+            "image_base64": base64.b64encode(jpeg).decode("utf-8"),
+            "angle": angle
+        }
     except Exception as e:
-        print(f"❌ [ERROR] Error al codificar JPEG: {e}")
-        raise
-
-    headers = {"X-Deskew-Angle": str(angle)}
-    return Response(content=jpeg, media_type="image/jpeg", headers=headers)
+        print(f"❌ Error: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @app.post("/deskew_json")
